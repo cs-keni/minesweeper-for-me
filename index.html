@@ -44,11 +44,16 @@
                 <input type="checkbox" id="theme-toggle">
                 <span class="toggle-label">Dark Theme</span>
             </label>
+            <label class="toggle-container">
+                <input type="checkbox" id="debug-toggle">
+                <span class="toggle-label">Debug Mode</span>
+            </label>
             <button id="keybinds-btn" class="btn btn-secondary">Rebind Keys</button>
         </div>
 
         <div class="game-board-container">
             <div id="game-board" class="game-board"></div>
+            <div id="debug-overlay" class="debug-overlay"></div>
         </div>
 
         <div class="instructions">
@@ -70,12 +75,24 @@
                     <span class="key">C</span>
                     <span class="action">Explain Probability</span>
                 </div>
+                <div class="keybind-item">
+                    <span class="key">R</span>
+                    <span class="action">Restart (when game over)</span>
+                </div>
             </div>
         </div>
 
         <div id="probability-explanation" class="probability-explanation">
             <h4>Probability Explanation</h4>
             <div id="explanation-content"></div>
+        </div>
+
+        <div id="probability-modal" class="probability-modal">
+            <div class="probability-modal-content">
+                <button id="close-probability-modal" class="close-probability-btn">&times;</button>
+                <h4>Probability Explanation</h4>
+                <div id="probability-modal-content"></div>
+            </div>
         </div>
 
         <div id="keybind-modal" class="modal">

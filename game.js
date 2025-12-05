@@ -3,12 +3,12 @@ class MinesweeperGame {
         this.difficulties = {
             beginner: { rows: 9, cols: 9, mines: 10 },
             intermediate: { rows: 16, cols: 16, mines: 40 },
-            advanced: { rows: 16, cols: 30, mines: 99 }
+            advanced: { rows: 20, cols: 26, mines: 110 }
         };
         
-        this.rows = 16;
-        this.cols = 30;
-        this.mineCount = 99;
+        this.rows = 20;
+        this.cols = 26;
+        this.mineCount = 110;
         this.difficulty = 'advanced';
         this.board = [];
         this.revealed = [];
@@ -22,6 +22,7 @@ class MinesweeperGame {
         this.timerInterval = null;
         this.showProbabilities = false;
         this.darkTheme = false;
+        this.debugMode = false;
         this.probabilityCache = new Map();
         
         // Keybinds (default)
@@ -41,6 +42,13 @@ class MinesweeperGame {
         this.setupEventListeners();
         this.updateDisplay();
         this.applyTheme();
+        this.calculateCellSize();
+        window.addEventListener('resize', () => {
+            this.calculateCellSize();
+            if (this.debugMode) {
+                setTimeout(() => this.updateDebugOverlay(), 0);
+            }
+        });
     }
     
     loadSettings() {
@@ -102,6 +110,7 @@ class MinesweeperGame {
         this.createBoard();
         this.renderBoard();
         this.updateDisplay();
+        this.calculateCellSize();
     }
     
     toggleTheme() {
@@ -131,14 +140,32 @@ class MinesweeperGame {
         }
     }
     
-    placeMines(excludeRow, excludeCol) {
+    placeMines(excludeRow, excludeCol, isFirstClick = false) {
         let placed = 0;
+        
+        // Create a set of excluded cells (for first click, exclude clicked cell and all adjacent cells)
+        const excludedCells = new Set();
+        if (isFirstClick) {
+            // Exclude the clicked cell and all its neighbors
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const newRow = excludeRow + dr;
+                    const newCol = excludeCol + dc;
+                    if (this.isValidCell(newRow, newCol)) {
+                        excludedCells.add(`${newRow},${newCol}`);
+                    }
+                }
+            }
+        } else {
+            excludedCells.add(`${excludeRow},${excludeCol}`);
+        }
+        
         while (placed < this.mineCount) {
             const row = Math.floor(Math.random() * this.rows);
             const col = Math.floor(Math.random() * this.cols);
             
-            // Don't place mine on first clicked cell or if already a mine
-            if ((row === excludeRow && col === excludeCol) || this.board[row][col] === -1) {
+            // Don't place mine on excluded cells or if already a mine
+            if (excludedCells.has(`${row},${col}`) || this.board[row][col] === -1) {
                 continue;
             }
             
@@ -182,8 +209,10 @@ class MinesweeperGame {
             return;
         }
         
+        const wasFirstClick = this.firstClick;
+        
         if (this.firstClick) {
-            this.placeMines(row, col);
+            this.placeMines(row, col, true);
             this.firstClick = false;
             this.startTimer();
         }
@@ -215,8 +244,55 @@ class MinesweeperGame {
             }
         }
         
+        // On first click, reveal a larger area for a good starting position
+        if (wasFirstClick) {
+            this.revealStartingArea(row, col);
+        }
+        
         this.checkWin();
         this.renderBoard();
+        if (this.debugMode) {
+            this.updateDebugOverlay();
+        }
+    }
+    
+    revealStartingArea(startRow, startCol) {
+        // Reveal all cells within 2 cells distance that are safe (have no adjacent mines)
+        // This ensures a good starting area without relying on luck
+        const cellsToCheck = [{ row: startRow, col: startCol }];
+        const revealed = new Set();
+        
+        while (cellsToCheck.length > 0) {
+            const { row, col } = cellsToCheck.shift();
+            const key = `${row},${col}`;
+            
+            if (revealed.has(key) || !this.isValidCell(row, col) || this.revealed[row][col] || this.flagged[row][col]) {
+                continue;
+            }
+            
+            revealed.add(key);
+            this.revealed[row][col] = true;
+            
+            // If this cell has no adjacent mines, check its neighbors
+            if (this.board[row][col] === 0) {
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const newRow = row + dr;
+                        const newCol = col + dc;
+                        const newKey = `${newRow},${newCol}`;
+                        
+                        // Only add if within 2 cells distance from start and not already processed
+                        const distance = Math.max(Math.abs(newRow - startRow), Math.abs(newCol - startCol));
+                        if (distance <= 2 && !revealed.has(newKey) && this.isValidCell(newRow, newCol)) {
+                            cellsToCheck.push({ row: newRow, col: newCol });
+                        }
+                    }
+                }
+            }
+        }
+        
+        this.probabilityCache.clear();
     }
     
     toggleFlag(row, col) {
@@ -349,41 +425,45 @@ class MinesweeperGame {
             return null;
         }
         
-        // Use the maximum probability (if one constraint says 100%, it's 100%)
-        // But also consider: if minesNeeded === unrevealedCount, it's 100%
-        let maxProbability = 0;
-        let hasCertainty = false;
+        // Check for certainties first - these take absolute priority
+        let hasZeroCertainty = false;
+        let hasOneHundredCertainty = false;
         
         for (const constraint of constraints) {
             if (constraint.minesNeeded === constraint.unrevealedCount) {
-                // All unrevealed cells must be mines
-                maxProbability = 1;
-                hasCertainty = true;
+                // All unrevealed cells must be mines - 100% certainty
+                hasOneHundredCertainty = true;
                 break;
             } else if (constraint.minesNeeded === 0) {
-                // None of the unrevealed cells are mines
-                maxProbability = Math.max(maxProbability, 0);
-            } else {
-                maxProbability = Math.max(maxProbability, constraint.probability);
+                // None of the unrevealed cells are mines - 0% certainty
+                hasZeroCertainty = true;
             }
         }
         
-        // If we have certainty (100%), return it
-        if (hasCertainty) {
+        // If we have 100% certainty, return it immediately
+        if (hasOneHundredCertainty) {
             this.probabilityCache.set(cacheKey, 1);
             return 1;
         }
         
-        // For overlapping constraints, use weighted average
+        // If we have 0% certainty (any constraint says no mines needed), return 0 immediately
+        if (hasZeroCertainty) {
+            this.probabilityCache.set(cacheKey, 0);
+            return 0;
+        }
+        
+        // For overlapping constraints without certainties, use weighted average
         // Constraints with fewer possibilities get more weight
         let weightedSum = 0;
         let totalWeight = 0;
+        let maxProbability = 0;
         
         for (const constraint of constraints) {
             // Weight inversely proportional to number of possibilities
             const weight = 1 / constraint.unrevealedCount;
             weightedSum += constraint.probability * weight;
             totalWeight += weight;
+            maxProbability = Math.max(maxProbability, constraint.probability);
         }
         
         const finalProbability = totalWeight > 0 ? weightedSum / totalWeight : maxProbability;
@@ -453,20 +533,21 @@ class MinesweeperGame {
         }
         
         const explanation = this.getProbabilityExplanation(row, col);
-        const explanationDiv = document.getElementById('probability-explanation');
-        const contentDiv = document.getElementById('explanation-content');
+        const modal = document.getElementById('probability-modal');
+        const contentDiv = document.getElementById('probability-modal-content');
         
         if (!explanation || explanation.length === 0) {
-            explanationDiv.style.display = 'none';
+            modal.classList.remove('active');
             return;
         }
         
         const probability = this.calculateProbability(row, col);
         if (probability === null) {
-            explanationDiv.style.display = 'none';
+            modal.classList.remove('active');
             return;
         }
         
+        // Build the explanation HTML
         let html = `<p><strong>Cell (${row + 1}, ${col + 1}): ${Math.round(probability * 100)}%</strong></p>`;
         html += '<p>Based on constraints:</p><ul>';
         
@@ -479,7 +560,100 @@ class MinesweeperGame {
         
         html += '</ul>';
         contentDiv.innerHTML = html;
-        explanationDiv.style.display = 'block';
+        
+        // Position the modal near the cell with arrow pointer
+        const boardElement = document.getElementById('game-board');
+        const cellElement = boardElement.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+        
+        if (cellElement) {
+            const cellRect = cellElement.getBoundingClientRect();
+            const modalContent = modal.querySelector('.probability-modal-content');
+            
+            // Remove any existing arrow classes
+            modalContent.classList.remove('arrow-top', 'arrow-bottom', 'arrow-left', 'arrow-right');
+            
+            // Force a reflow to get accurate dimensions (temporarily show modal)
+            const wasVisible = modal.classList.contains('active');
+            if (!wasVisible) {
+                modal.style.visibility = 'hidden';
+                modal.classList.add('active');
+            }
+            const modalRect = modalContent.getBoundingClientRect();
+            if (!wasVisible) {
+                modal.classList.remove('active');
+                modal.style.visibility = '';
+            }
+            
+            // Calculate available space
+            const spaceAbove = cellRect.top;
+            const spaceBelow = window.innerHeight - cellRect.bottom;
+            const spaceLeft = cellRect.left;
+            const spaceRight = window.innerWidth - cellRect.right;
+            
+            const arrowSize = 10;
+            const gap = 15; // Gap between cell and modal
+            
+            let top, left, arrowPosition, arrowClass;
+            
+            // Prefer positioning above the cell
+            if (spaceAbove >= modalRect.height + gap + arrowSize) {
+                top = cellRect.top - modalRect.height - gap - arrowSize;
+                left = cellRect.left + (cellRect.width / 2) - (modalRect.width / 2);
+                arrowPosition = cellRect.left + (cellRect.width / 2) - left;
+                arrowClass = 'arrow-bottom';
+            }
+            // Otherwise try below
+            else if (spaceBelow >= modalRect.height + gap + arrowSize) {
+                top = cellRect.bottom + gap + arrowSize;
+                left = cellRect.left + (cellRect.width / 2) - (modalRect.width / 2);
+                arrowPosition = cellRect.left + (cellRect.width / 2) - left;
+                arrowClass = 'arrow-top';
+            }
+            // Try to the right
+            else if (spaceRight >= modalRect.width + gap + arrowSize) {
+                top = cellRect.top + (cellRect.height / 2) - (modalRect.height / 2);
+                left = cellRect.right + gap + arrowSize;
+                arrowPosition = cellRect.top + (cellRect.height / 2) - top;
+                arrowClass = 'arrow-left';
+            }
+            // Try to the left
+            else if (spaceLeft >= modalRect.width + gap + arrowSize) {
+                top = cellRect.top + (cellRect.height / 2) - (modalRect.height / 2);
+                left = cellRect.left - modalRect.width - gap - arrowSize;
+                arrowPosition = cellRect.top + (cellRect.height / 2) - top;
+                arrowClass = 'arrow-right';
+            }
+            // Fallback: position above even if tight
+            else {
+                top = Math.max(10, cellRect.top - modalRect.height - gap - arrowSize);
+                left = cellRect.left + (cellRect.width / 2) - (modalRect.width / 2);
+                arrowPosition = cellRect.left + (cellRect.width / 2) - left;
+                arrowClass = 'arrow-bottom';
+            }
+            
+            // Keep arrow within modal bounds
+            arrowPosition = Math.max(20, Math.min(arrowPosition, modalRect.width - 20));
+            
+            // Adjust if modal would go off screen
+            if (left < 10) {
+                left = 10;
+                arrowPosition = cellRect.left + (cellRect.width / 2) - left;
+            } else if (left + modalRect.width > window.innerWidth - 10) {
+                left = window.innerWidth - modalRect.width - 10;
+                arrowPosition = cellRect.left + (cellRect.width / 2) - left;
+            }
+            
+            if (top < 10) {
+                top = 10;
+            }
+            
+            modal.style.top = `${top}px`;
+            modal.style.left = `${left}px`;
+            modalContent.classList.add(arrowClass);
+            modalContent.style.setProperty('--arrow-position', `${arrowPosition}px`);
+        }
+        
+        modal.classList.add('active');
     }
     
     countFlaggedAdjacent(row, col) {
@@ -499,6 +673,9 @@ class MinesweeperGame {
     
     move(direction) {
         if (this.gameOver || this.gameWon) return;
+        
+        // Close probability modal when moving
+        document.getElementById('probability-modal').classList.remove('active');
         
         let newRow = this.currentRow;
         let newCol = this.currentCol;
@@ -523,10 +700,97 @@ class MinesweeperGame {
         this.renderBoard();
     }
     
+    calculateCellSize() {
+        const boardContainer = document.querySelector('.game-board-container');
+        const container = document.querySelector('.container');
+        if (!boardContainer || !container) return;
+        
+        // Get available space - use viewport dimensions for more accurate calculation
+        const header = document.querySelector('header');
+        const controls = document.querySelector('.controls');
+        const instructions = document.querySelector('.instructions');
+        
+        // Calculate used vertical space more accurately
+        const headerHeight = header ? header.offsetHeight : 120;
+        const controlsHeight = controls ? controls.offsetHeight : 50;
+        const instructionsHeight = instructions && instructions.offsetParent !== null ? instructions.offsetHeight : 0;
+        const containerPadding = 60; // Container padding top + bottom
+        const containerMargin = 20; // Margin bottom for board container
+        
+        // Use viewport width minus container padding and margins
+        const availableWidth = Math.min(
+            window.innerWidth - 80, // Account for page margins
+            container.offsetWidth - 40 // Or container width minus padding
+        );
+        
+        // Use viewport height minus all UI elements
+        const availableHeight = window.innerHeight - headerHeight - controlsHeight - instructionsHeight - containerPadding - containerMargin;
+        
+        // Gap size scales with cell size (approximately 5.7% of cell size based on CSS)
+        // We need to solve this iteratively or use a formula
+        // gap = cellSize * 0.057, boardPadding = cellSize * 0.057
+        // totalWidth = cols * cellSize + (cols - 1) * gap + 2 * boardPadding
+        // totalWidth = cols * cellSize + (cols - 1) * cellSize * 0.057 + 2 * cellSize * 0.057
+        // totalWidth = cellSize * (cols + (cols - 1) * 0.057 + 2 * 0.057)
+        // totalWidth = cellSize * (cols + cols * 0.057 - 0.057 + 0.114)
+        // totalWidth = cellSize * (cols * 1.057 + 0.057)
+        
+        // Solving for cellSize:
+        // cellSize = totalWidth / (cols * 1.057 + 0.057)
+        
+        const widthFactor = this.cols * 1.057 + 0.057;
+        const heightFactor = this.rows * 1.057 + 0.057;
+        
+        // Calculate max cell size that fits both width and height
+        const maxWidthCellSize = availableWidth / widthFactor;
+        const maxHeightCellSize = availableHeight / heightFactor;
+        
+        // Use the smaller of the two to ensure everything fits without scrolling
+        let cellSize = Math.min(maxWidthCellSize, maxHeightCellSize);
+        
+        // Set minimum and maximum cell sizes for usability
+        // Allow smaller cells for very small windows, but we'll adjust font size for readability
+        const minCellSize = 16; // Absolute minimum (very small windows)
+        const maxCellSize = 50; // Maximum cell size (prevents cells from getting too large)
+        
+        // Apply min/max constraints
+        cellSize = Math.max(minCellSize, Math.min(maxCellSize, cellSize));
+        
+        // Calculate font size based on cell size with readability thresholds
+        // Above 22px: use 40% of cell size for optimal readability
+        // 18-22px: use 45% to maintain readability
+        // Below 18px: use 50% to maximize readability in cramped spaces
+        let fontSizeRatio;
+        if (cellSize >= 22) {
+            fontSizeRatio = 0.4; // Optimal readability
+        } else if (cellSize >= 18) {
+            fontSizeRatio = 0.45; // Good readability
+        } else {
+            fontSizeRatio = 0.5; // Maximum readability for small cells
+        }
+        
+        // Calculate probability font size (75% of cell font size for readability)
+        const probabilityFontSize = cellSize * fontSizeRatio * 0.75;
+        
+        // Apply the cell size and font sizes as CSS variables
+        document.documentElement.style.setProperty('--cell-size', `${cellSize}px`);
+        document.documentElement.style.setProperty('--cell-font-size', `${cellSize * fontSizeRatio}px`);
+        document.documentElement.style.setProperty('--probability-font-size', `${probabilityFontSize}px`);
+        
+        // Update debug overlay if enabled
+        if (this.debugMode) {
+            // Use setTimeout to ensure DOM has updated
+            setTimeout(() => this.updateDebugOverlay(), 0);
+        }
+    }
+    
     renderBoard() {
         const boardElement = document.getElementById('game-board');
         boardElement.style.gridTemplateColumns = `repeat(${this.cols}, 1fr)`;
         boardElement.innerHTML = '';
+        
+        // Recalculate cell size before rendering
+        this.calculateCellSize();
         
         for (let row = 0; row < this.rows; row++) {
             for (let col = 0; col < this.cols; col++) {
@@ -561,6 +825,10 @@ class MinesweeperGame {
                 
                 boardElement.appendChild(cell);
             }
+        }
+        
+        if (this.debugMode) {
+            this.updateDebugOverlay();
         }
     }
     
@@ -620,7 +888,23 @@ class MinesweeperGame {
                 this.toggleFlag(this.currentRow, this.currentCol);
             } else if (key === 'c' && this.showProbabilities) {
                 e.preventDefault();
-                this.showProbabilityExplanation(this.currentRow, this.currentCol);
+                const modal = document.getElementById('probability-modal');
+                // Toggle modal - close if already open for this cell, otherwise show
+                if (modal.classList.contains('active')) {
+                    modal.classList.remove('active');
+                } else {
+                    this.showProbabilityExplanation(this.currentRow, this.currentCol);
+                }
+            } else if (e.key === 'Escape') {
+                // Close probability modal on ESC
+                document.getElementById('probability-modal').classList.remove('active');
+            } else if (key === 'r' && (this.gameOver || this.gameWon)) {
+                // Restart game with 'r' key when game is over
+                e.preventDefault();
+                document.getElementById('game-over-modal').classList.remove('active');
+                this.createBoard();
+                this.renderBoard();
+                this.updateDisplay();
             }
         });
         
@@ -643,6 +927,25 @@ class MinesweeperGame {
             this.renderBoard();
             if (!this.showProbabilities) {
                 document.getElementById('probability-explanation').style.display = 'none';
+                document.getElementById('probability-modal').classList.remove('active');
+            }
+        });
+        
+        // Debug toggle
+        document.getElementById('debug-toggle').addEventListener('change', (e) => {
+            this.debugMode = e.target.checked;
+            this.updateDebugOverlay();
+        });
+        
+        // Close probability modal
+        document.getElementById('close-probability-modal').addEventListener('click', () => {
+            document.getElementById('probability-modal').classList.remove('active');
+        });
+        
+        // Close probability modal when clicking outside
+        document.getElementById('probability-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'probability-modal') {
+                document.getElementById('probability-modal').classList.remove('active');
             }
         });
         
