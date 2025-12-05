@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minesweeper - Keyboard Edition</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Minesweeper</h1>
+            <div class="game-info">
+                <div class="info-item">
+                    <span class="label">Mines:</span>
+                    <span id="mine-count">10</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Flags:</span>
+                    <span id="flag-count">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Time:</span>
+                    <span id="timer">0</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="difficulty-select" class="control-label">Difficulty:</label>
+                <select id="difficulty-select" class="difficulty-select">
+                    <option value="beginner">Beginner</option>
+                    <option value="intermediate">Intermediate</option>
+                    <option value="advanced" selected>Advanced</option>
+                </select>
+            </div>
+            <button id="new-game-btn" class="btn btn-primary">New Game</button>
+            <label class="toggle-container">
+                <input type="checkbox" id="probability-toggle">
+                <span class="toggle-label">Show Probabilities</span>
+            </label>
+            <label class="toggle-container">
+                <input type="checkbox" id="theme-toggle">
+                <span class="toggle-label">Dark Theme</span>
+            </label>
+            <button id="keybinds-btn" class="btn btn-secondary">Rebind Keys</button>
+        </div>
+
+        <div class="game-board-container">
+            <div id="game-board" class="game-board"></div>
+        </div>
+
+        <div class="instructions">
+            <h3>Controls</h3>
+            <div class="keybinds-display">
+                <div class="keybind-item">
+                    <span class="key">Arrow Keys</span>
+                    <span class="action">Navigate</span>
+                </div>
+                <div class="keybind-item">
+                    <span class="key" id="open-key">Z</span>
+                    <span class="action">Open Cell</span>
+                </div>
+                <div class="keybind-item">
+                    <span class="key" id="flag-key">X</span>
+                    <span class="action">Flag Cell</span>
+                </div>
+                <div class="keybind-item">
+                    <span class="key">C</span>
+                    <span class="action">Explain Probability</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="probability-explanation" class="probability-explanation">
+            <h4>Probability Explanation</h4>
+            <div id="explanation-content"></div>
+        </div>
+
+        <div id="keybind-modal" class="modal">
+            <div class="modal-content">
+                <h2>Rebind Keys</h2>
+                <div class="keybind-settings">
+                    <div class="keybind-setting">
+                        <label>Open Cell:</label>
+                        <button class="keybind-button" data-action="open">Z</button>
+                    </div>
+                    <div class="keybind-setting">
+                        <label>Flag Cell:</label>
+                        <button class="keybind-button" data-action="flag">X</button>
+                    </div>
+                </div>
+                <button id="close-keybinds" class="btn btn-primary">Close</button>
+            </div>
+        </div>
+
+        <div id="game-over-modal" class="modal">
+            <div class="modal-content">
+                <h2 id="game-over-title">Game Over</h2>
+                <p id="game-over-message"></p>
+                <button id="play-again-btn" class="btn btn-primary">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
+
