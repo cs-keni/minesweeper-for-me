@@ -38,11 +38,11 @@ class MinesweeperGame {
         this.loadSettings();
         this.loadKeybinds();
         this.createBoard();
-        this.renderBoard();
         this.setupEventListeners();
         this.updateDisplay();
         this.applyTheme();
         this.calculateCellSize();
+        this.renderBoard();
         window.addEventListener('resize', () => {
             this.calculateCellSize();
             if (this.debugMode) {
@@ -108,9 +108,8 @@ class MinesweeperGame {
         this.mineCount = config.mines;
         this.saveSettings();
         this.createBoard();
-        this.renderBoard();
+        this.renderBoard(true);
         this.updateDisplay();
-        this.calculateCellSize();
     }
     
     toggleTheme() {
@@ -717,17 +716,29 @@ class MinesweeperGame {
         const containerPadding = 60; // Container padding top + bottom
         const containerMargin = 20; // Margin bottom for board container
         
-        // Use viewport width minus container padding and margins
-        const availableWidth = Math.min(
-            window.innerWidth - 80, // Account for page margins
-            container.offsetWidth - 40 // Or container width minus padding
+        // Get the actual container width, accounting for body padding
+        const bodyPadding = 40; // 20px on each side
+        const containerRect = container.getBoundingClientRect();
+        const containerPaddingHorizontal = 60; // 30px on each side
+        
+        // Available width: use the actual container width minus its padding
+        // This ensures we account for the container's max-width constraint
+        let availableWidth = Math.min(
+            window.innerWidth - bodyPadding,
+            containerRect.width - containerPaddingHorizontal,
+            container.offsetWidth - containerPaddingHorizontal
         );
+        
+        // Ensure we have a positive value
+        if (availableWidth <= 0) {
+            // Fallback: use a reasonable minimum
+            availableWidth = Math.max(200, window.innerWidth - bodyPadding - containerPaddingHorizontal);
+        }
         
         // Use viewport height minus all UI elements
         const availableHeight = window.innerHeight - headerHeight - controlsHeight - instructionsHeight - containerPadding - containerMargin;
         
         // Gap size scales with cell size (approximately 5.7% of cell size based on CSS)
-        // We need to solve this iteratively or use a formula
         // gap = cellSize * 0.057, boardPadding = cellSize * 0.057
         // totalWidth = cols * cellSize + (cols - 1) * gap + 2 * boardPadding
         // totalWidth = cols * cellSize + (cols - 1) * cellSize * 0.057 + 2 * cellSize * 0.057
@@ -777,6 +788,10 @@ class MinesweeperGame {
         document.documentElement.style.setProperty('--cell-font-size', `${cellSize * fontSizeRatio}px`);
         document.documentElement.style.setProperty('--probability-font-size', `${probabilityFontSize}px`);
         
+        // Ensure board container doesn't overflow
+        boardContainer.style.overflow = 'visible';
+        boardContainer.style.maxWidth = '100%';
+        
         // Update debug overlay if enabled
         if (this.debugMode) {
             // Use setTimeout to ensure DOM has updated
@@ -784,13 +799,15 @@ class MinesweeperGame {
         }
     }
     
-    renderBoard() {
+    renderBoard(recalculateSize = false) {
         const boardElement = document.getElementById('game-board');
         boardElement.style.gridTemplateColumns = `repeat(${this.cols}, 1fr)`;
         boardElement.innerHTML = '';
         
-        // Recalculate cell size before rendering
-        this.calculateCellSize();
+        // Only recalculate cell size if explicitly requested (e.g., on resize or difficulty change)
+        if (recalculateSize) {
+            this.calculateCellSize();
+        }
         
         for (let row = 0; row < this.rows; row++) {
             for (let col = 0; col < this.cols; col++) {
@@ -847,6 +864,102 @@ class MinesweeperGame {
         document.getElementById('timer').textContent = this.timer;
     }
     
+    updateDebugOverlay() {
+        const overlay = document.getElementById('debug-overlay');
+        if (!overlay) return;
+        
+        if (!this.debugMode) {
+            overlay.style.display = 'none';
+            return;
+        }
+        
+        overlay.style.display = 'block';
+        
+        // Calculate revealed and flagged counts
+        let revealedCount = 0;
+        let flaggedCount = 0;
+        let mineRevealedCount = 0;
+        
+        for (let row = 0; row < this.rows; row++) {
+            for (let col = 0; col < this.cols; col++) {
+                if (this.revealed[row][col]) {
+                    revealedCount++;
+                    if (this.board[row][col] === -1) {
+                        mineRevealedCount++;
+                    }
+                }
+                if (this.flagged[row][col]) {
+                    flaggedCount++;
+                }
+            }
+        }
+        
+        const totalCells = this.rows * this.cols;
+        const remainingCells = totalCells - revealedCount;
+        const remainingMines = this.mineCount - flaggedCount;
+        
+        // Get current cell info
+        const currentCell = this.board[this.currentRow][this.currentCol];
+        const currentCellRevealed = this.revealed[this.currentRow][this.currentCol];
+        const currentCellFlagged = this.flagged[this.currentRow][this.currentCol];
+        const currentCellProbability = this.calculateProbability(this.currentRow, this.currentCol);
+        
+        // Build debug info HTML
+        let html = '<h4>Debug Information</h4>';
+        html += '<div class="debug-info">';
+        
+        html += '<div class="debug-section">';
+        html += '<strong>Game State</strong>';
+        html += `Game Over: ${this.gameOver ? 'Yes' : 'No'}<br>`;
+        html += `Game Won: ${this.gameWon ? 'Yes' : 'No'}<br>`;
+        html += `First Click: ${this.firstClick ? 'Yes' : 'No'}<br>`;
+        html += `Timer: ${this.timer}s<br>`;
+        html += '</div>';
+        
+        html += '<div class="debug-section">';
+        html += '<strong>Board Statistics</strong>';
+        html += `Total Cells: ${totalCells}<br>`;
+        html += `Revealed: ${revealedCount}<br>`;
+        html += `Remaining: ${remainingCells}<br>`;
+        html += `Mines: ${this.mineCount}<br>`;
+        html += `Flagged: ${flaggedCount}<br>`;
+        html += `Remaining Mines: ${remainingMines}<br>`;
+        html += `Mines Revealed: ${mineRevealedCount}<br>`;
+        html += '</div>';
+        
+        html += '<div class="debug-section">';
+        html += '<strong>Current Cell</strong>';
+        html += `Position: (${this.currentRow + 1}, ${this.currentCol + 1})<br>`;
+        html += `Value: ${currentCell === -1 ? 'MINE' : currentCell}<br>`;
+        html += `Revealed: ${currentCellRevealed ? 'Yes' : 'No'}<br>`;
+        html += `Flagged: ${currentCellFlagged ? 'Yes' : 'No'}<br>`;
+        if (currentCellProbability !== null) {
+            html += `Probability: ${Math.round(currentCellProbability * 100)}%<br>`;
+        } else {
+            html += `Probability: N/A<br>`;
+        }
+        html += '</div>';
+        
+        html += '<div class="debug-section">';
+        html += '<strong>Settings</strong>';
+        html += `Difficulty: ${this.difficulty}<br>`;
+        html += `Rows: ${this.rows}, Cols: ${this.cols}<br>`;
+        html += `Show Probabilities: ${this.showProbabilities ? 'Yes' : 'No'}<br>`;
+        html += `Dark Theme: ${this.darkTheme ? 'Yes' : 'No'}<br>`;
+        html += '</div>';
+        
+        html += '</div>';
+        
+        overlay.innerHTML = html;
+        
+        // Position the overlay in the top-right corner
+        overlay.style.position = 'fixed';
+        overlay.style.top = '20px';
+        overlay.style.right = '20px';
+        overlay.style.left = 'auto';
+        overlay.style.bottom = 'auto';
+    }
+    
     startTimer() {
         this.timerInterval = setInterval(() => {
             this.timer++;
@@ -895,6 +1008,20 @@ class MinesweeperGame {
                 } else {
                     this.showProbabilityExplanation(this.currentRow, this.currentCol);
                 }
+            } else if (key === 'v') {
+                e.preventDefault();
+                // Toggle show probabilities
+                this.showProbabilities = !this.showProbabilities;
+                const toggle = document.getElementById('probability-toggle');
+                if (toggle) {
+                    toggle.checked = this.showProbabilities;
+                }
+                this.probabilityCache.clear();
+                this.renderBoard(false);
+                if (!this.showProbabilities) {
+                    document.getElementById('probability-explanation').style.display = 'none';
+                    document.getElementById('probability-modal').classList.remove('active');
+                }
             } else if (e.key === 'Escape') {
                 // Close probability modal on ESC
                 document.getElementById('probability-modal').classList.remove('active');
@@ -903,7 +1030,7 @@ class MinesweeperGame {
                 e.preventDefault();
                 document.getElementById('game-over-modal').classList.remove('active');
                 this.createBoard();
-                this.renderBoard();
+                this.renderBoard(true);
                 this.updateDisplay();
             }
         });
@@ -916,7 +1043,7 @@ class MinesweeperGame {
         // New game button
         document.getElementById('new-game-btn').addEventListener('click', () => {
             this.createBoard();
-            this.renderBoard();
+            this.renderBoard(true);
             this.updateDisplay();
         });
         
@@ -924,7 +1051,7 @@ class MinesweeperGame {
         document.getElementById('probability-toggle').addEventListener('change', (e) => {
             this.showProbabilities = e.target.checked;
             this.probabilityCache.clear();
-            this.renderBoard();
+            this.renderBoard(false);
             if (!this.showProbabilities) {
                 document.getElementById('probability-explanation').style.display = 'none';
                 document.getElementById('probability-modal').classList.remove('active');
@@ -1021,7 +1148,7 @@ class MinesweeperGame {
         document.getElementById('play-again-btn').addEventListener('click', () => {
             document.getElementById('game-over-modal').classList.remove('active');
             this.createBoard();
-            this.renderBoard();
+            this.renderBoard(true);
             this.updateDisplay();
         });
         
